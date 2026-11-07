@@ -1,0 +1,105 @@
+diff --git a/api/http/handler/stacks/stack_migrate.go b/api/http/handler/stacks/stack_migrate.go
+index 9fec2be..80d3c43 100644
+--- a/api/http/handler/stacks/stack_migrate.go
++++ b/api/http/handler/stacks/stack_migrate.go
+@@ -130,6 +130,21 @@ func (handler *Handler) stackMigrate(w http.ResponseWriter, r *http.Request) *ht
+ 		return httperror.InternalServerError("Unable to find an endpoint with the specified identifier inside the database", err)
+ 	}
+ 
++	// The destination environment is an authorization subject in its own right:
++	// migration creates resources there using the server's own credentials.
++	if err := handler.requestBouncer.AuthorizedEndpointOperation(r, targetEndpoint); err != nil {
++		return httperror.Forbidden("Permission denied to access endpoint", err)
++	}
++
++	canManageTarget, err := handler.userCanManageStacks(securityContext, targetEndpoint)
++	if err != nil {
++		return httperror.InternalServerError("Unable to verify user authorizations to validate stack migration", err)
++	}
++	if !canManageTarget {
++		errMsg := "Stack migration is disabled for non-admin users on the destination environment"
++		return httperror.Forbidden(errMsg, errors.New(errMsg))
++	}
++
+ 	stack.EndpointID = portainer.EndpointID(payload.EndpointID)
+ 	if payload.SwarmID != "" {
+ 		stack.SwarmID = payload.SwarmID
+diff --git a/api/http/handler/stacks/stack_update.go b/api/http/handler/stacks/stack_update.go
+index 38f4e72..4de3ddf 100644
+--- a/api/http/handler/stacks/stack_update.go
++++ b/api/http/handler/stacks/stack_update.go
+@@ -166,11 +166,20 @@ func (handler *Handler) updateStackInTx(tx dataservices.DataStoreTx, r *http.Req
+ 		return nil, nil, nil, httperror.Conflict("Unable to update stack", errors.New("Stack deployment is already in progress"))
+ 	}
+ 
+-	if endpointID != 0 && endpointID != stack.EndpointID {
+-		stack.EndpointID = endpointID
++	securityContext, err := security.RetrieveRestrictedRequestContext(r)
++	if err != nil {
++		return nil, nil, nil, httperror.InternalServerError("Unable to retrieve info from request context", err)
++	}
++
++	// The environment stored on the stack is the authorization subject. The
++	// endpointId query parameter is only a legacy association for stacks with no
++	// stored environment; it never overrides an existing one for a non-admin.
++	sourceEndpointID := stack.EndpointID
++	if sourceEndpointID == 0 {
++		sourceEndpointID = endpointID
+ 	}
+ 
+-	endpoint, err := tx.Endpoint().Endpoint(stack.EndpointID)
++	endpoint, err := tx.Endpoint().Endpoint(sourceEndpointID)
+ 	if tx.IsErrObjectNotFound(err) {
+ 		return nil, nil, nil, httperror.NotFound("Unable to find the environment associated to the stack inside the database", err)
+ 	} else if err != nil {
+@@ -181,14 +190,15 @@ func (handler *Handler) updateStackInTx(tx dataservices.DataStoreTx, r *http.Req
+ 		return nil, nil, nil, httperror.Forbidden("Permission denied to access environment", err)
+ 	}
+ 
+-	securityContext, err := security.RetrieveRestrictedRequestContext(r)
+-	if err != nil {
+-		return nil, nil, nil, httperror.InternalServerError("Unable to retrieve info from request context", err)
++	// Legacy stacks (created before 1.17.1) carry no environment. Persist the
++	// association once it has been authorized, so later operations can use it.
++	if stack.EndpointID == 0 && endpointID != 0 {
++		stack.EndpointID = endpointID
+ 	}
+ 
+ 	//only check resource control when it is a DockerSwarmStack or a DockerComposeStack
+ 	if stack.Type == portainer.DockerSwarmStack || stack.Type == portainer.DockerComposeStack {
+-		resourceControl, err := tx.ResourceControl().ResourceControlByResourceIDAndType(stackutils.ResourceControlID(stack.EndpointID, stack.Name), portainer.StackResourceControl)
++		resourceControl, err := tx.ResourceControl().ResourceControlByResourceIDAndType(stackutils.ResourceControlID(sourceEndpointID, stack.Name), portainer.StackResourceControl)
+ 		if err != nil {
+ 			return nil, nil, nil, httperror.InternalServerError("Unable to retrieve a resource control associated to the stack", err)
+ 		}
+@@ -208,6 +218,30 @@ func (handler *Handler) updateStackInTx(tx dataservices.DataStoreTx, r *http.Req
+ 		return nil, nil, nil, httperror.Forbidden(errMsg, errors.New(errMsg))
+ 	}
+ 
++	// Moving a stack between environments is a migration, not an update. Only an
++	// administrator may do it here, and only onto an environment they are also
++	// authorized on. Everything below deploys to `endpoint`, which must match the
++	// environment stored on the stack.
++	if endpointID != 0 && endpointID != sourceEndpointID {
++		if !securityContext.IsAdmin {
++			return nil, nil, nil, httperror.Forbidden("Only administrators can move a stack to another environment", httperrors.ErrResourceAccessDenied)
++		}
++
++		targetEndpoint, err := tx.Endpoint().Endpoint(endpointID)
++		if tx.IsErrObjectNotFound(err) {
++			return nil, nil, nil, httperror.NotFound("Unable to find the environment associated to the stack inside the database", err)
++		} else if err != nil {
++			return nil, nil, nil, httperror.InternalServerError("Unable to find the environment associated to the stack inside the database", err)
++		}
++
++		if err := handler.requestBouncer.AuthorizedEndpointOperation(r, targetEndpoint); err != nil {
++			return nil, nil, nil, httperror.Forbidden("Permission denied to access environment", err)
++		}
++
++		stack.EndpointID = endpointID
++		endpoint = targetEndpoint
++	}
++
+ 	deploymentConfig, postDeploy, httpErr := handler.updateAndDeployStack(tx, r, stack, endpoint)
+ 	if httpErr != nil {
+ 		return nil, nil, nil, httpErr

