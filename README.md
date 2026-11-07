@@ -254,12 +254,13 @@ it; a cheaper approximation is to alert on any non-admin request to either endpo
 
 ## On the timing
 
-Portainer's policy asks reporters not to disclose until a fix has been released. We are publishing
-on a 24-hour clock instead. The bug is reachable by any authenticated user who has stack rights on
-one environment, and the fix is in this post. The policy sets no response SLA; waiting for a
-release would leave every multi-environment installation exposed for an indefinite period while
-the patch that closes it is already written and tested. The report was sent before this post went
-up, and this section will be updated with Portainer's response.
+Portainer's policy asks reporters not to disclose until a fix has been released. We reported with a
+24-hour notice and are publishing two days later, with no response from the maintainers. The bug is
+reachable by any authenticated user who has stack rights on one environment, and the fix is in this
+post. The policy sets no response SLA; waiting for a release would leave every multi-environment
+installation exposed for an indefinite period while the patch that closes it is already written and
+tested. The report was sent before this post went up, and this section will be updated with
+Portainer's response.
 
 ## Timeline
 
@@ -267,7 +268,7 @@ up, and this section will be updated with Portainer's response.
 - **2026-11-05** — reported privately to Portainer as
   [GHSA-x6pm-hvxv-g44v](https://github.com/portainer/portainer/security/advisories/GHSA-x6pm-hvxv-g44v),
   with a 24-hour publication notice.
-- **2026-11-06** — published.
+- **2026-11-07** — published, after two days with no maintainer response.
 - Fix status is updated at the top of this file as it changes.
 
 
