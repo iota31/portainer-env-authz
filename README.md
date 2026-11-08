@@ -2,7 +2,7 @@
 
 **Two authenticated authorization bugs in Portainer CE. One root cause. A verified patch.**
 
-*Reported privately to Portainer on 2026-11-05: [GHSA-x6pm-hvxv-g44v](https://github.com/portainer/portainer/security/advisories/GHSA-x6pm-hvxv-g44v).*
+*Reported privately to Portainer on 2026-11-05: [GHSA-x6pm-hvxv-g44v](https://github.com/portainer/portainer/security/advisories/GHSA-x6pm-hvxv-g44v). Triaged 2026-11-08 and merged into two advisories — [GHSA-fvrg-wmmq-wrfh](https://github.com/portainer/portainer/security/advisories/GHSA-fvrg-wmmq-wrfh) and [GHSA-m2rf-p268-843w](https://github.com/portainer/portainer/security/advisories/GHSA-m2rf-p268-843w) — with credit. Publication pending.*
 
 Portainer's security policy lists **environment access** among the controls it is responsible for
 making work as documented: a user with access to Docker environment A is not supposed to read,
@@ -269,6 +269,8 @@ Portainer's response.
   [GHSA-x6pm-hvxv-g44v](https://github.com/portainer/portainer/security/advisories/GHSA-x6pm-hvxv-g44v),
   with a 24-hour publication notice.
 - **2026-11-07** — published, after two days with no maintainer response.
+- **2026-11-08** — triaged by Portainer and merged into two advisories with credit;
+  publication and CVE assignment pending.
 - Fix status is updated at the top of this file as it changes.
 
 
