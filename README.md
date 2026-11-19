@@ -1,8 +1,10 @@
 # Portainer authorized the wrong environment
 
-**Two authenticated authorization bugs in Portainer CE. One root cause. A verified patch.**
+**Two authenticated authorization bugs in Portainer CE. One root cause. Vector 2 is fixed; vector 1 is still open.**
 
-*Reported privately to Portainer on 2026-11-05: [GHSA-x6pm-hvxv-g44v](https://github.com/portainer/portainer/security/advisories/GHSA-x6pm-hvxv-g44v). Triaged 2026-11-08 and merged into two advisories — [GHSA-fvrg-wmmq-wrfh](https://github.com/portainer/portainer/security/advisories/GHSA-fvrg-wmmq-wrfh) and [GHSA-m2rf-p268-843w](https://github.com/portainer/portainer/security/advisories/GHSA-m2rf-p268-843w) — with credit. Publication pending.*
+*Reported privately to Portainer on 2026-11-05: [GHSA-x6pm-hvxv-g44v](https://github.com/portainer/portainer/security/advisories/GHSA-x6pm-hvxv-g44v). Triaged 2026-11-08 and split into two advisories. Vector 2 was published on 2026-11-19 as [GHSA-m2rf-p268-843w](https://github.com/portainer/portainer/security/advisories/GHSA-m2rf-p268-843w) and is fixed in 2.39.9, 2.45.4 and 3.1.0. Vector 1's advisory ([GHSA-fvrg-wmmq-wrfh](https://github.com/portainer/portainer/security/advisories/GHSA-fvrg-wmmq-wrfh)) is still private, and the migrate path is still unfixed in 2.45.4 and develop as of 2026-11-19. No CVE has been assigned.*
+
+**Credit:** the published advisory credits `SAYUTIM` as the original reporter (2026-08-04), and `omar152002` (2026-08-21) and me (`iota31`, 2026-11-05) as independent duplicates. My report was an independent duplicate, not the first discovery. The vendor's advisory and fix are theirs; my reproduction and proposed fix approach are credited in it.
 
 Portainer's security policy lists **environment access** among the controls it is responsible for
 making work as documented: a user with access to Docker environment A is not supposed to read,
@@ -19,9 +21,10 @@ authorized decision.
 | 1 | `POST /api/stacks/{id}/migrate` | run arbitrary containers on a Docker host they have no access to |
 | 2 | `PUT /api/stacks/{id}?endpointId=` | take over and destroy another user's stack |
 
-Tested on **Portainer CE 2.45.3** (`be20b574172a27251fd8648cefe1b810a8dad6a5`, 2026-10-16). The
-same code is present on `develop` as of 2026-10-30. A patch is included at the end and was
-verified A/B against the unpatched build.
+Tested on **Portainer CE 2.45.3** (`be20b574172a27251fd8648cefe1b810a8dad6a5`, 2026-10-16). Vector 2
+was fixed in 2.39.9, 2.45.4 and 3.1.0. Vector 1 is still present in 2.45.4 and `develop` (source
+review, 2026-11-19). A patch for both is included at the end and was verified A/B against the
+unpatched build.
 
 One note on versions: the original reproduction ran the released `portainer/portainer-ce:2.45.3`
 image, which reports `2.45.3`. The A/B below builds both binaries from the pinned source, which
@@ -90,7 +93,7 @@ credentials — the attacker never needs network access to B or its Docker socke
 
 The container is created from attacker-supplied compose content, using Portainer's own server-side
 Docker credentials. That is arbitrary container deployment on the target host. Whether it escalates
-to host compromise depends on that environment's Docker configuration — we did not demonstrate a
+to host compromise depends on that environment's Docker configuration — I did not demonstrate a
 host escape and do not claim one.
 
 ---
@@ -147,6 +150,21 @@ file on disk is replaced with her content, and the stored `Env` is replaced. Wha
 **not** do is disclose bob's original content — the update overwrites it rather than returning
 it. That distinction matters and should not be overstated.
 
+### Vendor fix (vector 2)
+
+Portainer fixed vector 2 in commit
+[`d2336e9`](https://github.com/portainer/portainer/commit/d2336e95452d9c4fffd6091c0c234b46f57ffc75)
+("reject cross-environment stack endpoint rebinding"), committed on 2026-11-10 and merged on
+2026-11-11; shipped in 2.39.9, 2.45.4 and 3.1.0. The fix adds `stack_endpoint.go` and applies the same
+stored-environment resolution to the stack update, Git update and Git redeploy routes. A
+non-zero `endpointId` that differs from the stored environment is rejected with 403; only an
+administrator associating a legacy stack with no stored environment may re-point it. The
+vendor advisory is [GHSA-m2rf-p268-843w](https://github.com/portainer/portainer/security/advisories/GHSA-m2rf-p268-843w):
+High, CVSS v4 7.1, CWE-863, no CVE.
+
+I did not execute 2.45.4. The fixed behaviour above is from the vendor advisory and source
+review of the fix commit. The A/B table below is against my patch, not the vendor build.
+
 ---
 
 ## Why this is not "deployment hardening"
@@ -194,6 +212,9 @@ stack's environment admin-only (with both source and destination authorized). Le
 `EndpointID == 0` keep the documented `endpointId` workaround: the parameter is authorized, then
 persisted as the stack's environment.
 
+The vendor's fix for vector 2 follows the same rule for the update path, but it does not touch
+`stack_migrate.go`. Vector 1 remains open in 2.45.4 and `develop` as of 2026-11-19.
+
 ### Verification
 
 Same source tree, same build pipeline (Go 1.26, `CGO_ENABLED=0`, binary overlaid on the released
@@ -208,6 +229,13 @@ image). The patch is the only difference.
 The patched migrate returns `403 Permission denied to access endpoint`; the patched update
 returns `403` before the stack record is touched. The legitimate path is unaffected: alice can
 still create and run a stack on her own environment.
+
+Vendor status (source review, 2026-11-19):
+
+| Vector | Status |
+|---|---|
+| 1 — migrate | No public advisory. `stack_migrate.go` still authorizes only the source in 2.45.4, `release/2.45` and `develop`; the latest commit touching the file is 2026-07-21. |
+| 2 — update | Fixed in 2.39.9, 2.45.4 and 3.1.0 per the vendor advisory; fix commit `d2336e9`. |
 
 Logs in `evidence/`: `repro-migrate.log`, `repro-migrate-unpatched.log`, `repro-update.log`,
 `repro-update-unpatched.log`.
@@ -232,11 +260,13 @@ it; a cheaper approximation is to alert on any non-admin request to either endpo
 
 ## Containment while unpatched
 
-- Apply the patch. Setting `AllowStackManagementForRegularUsers=false` on the destination does
-  **not** stop vector 1 — that is the bypass.
-- If you cannot patch: remove stack management from non-admin users entirely, or run separate
-  Portainer instances per trust domain. Only give a user stack rights on environments where you
-  would accept them deploying arbitrary containers.
+- Upgrade to 2.39.9, 2.45.4 or 3.1.0 for vector 2. Those releases do **not** fix vector 1; apply
+  the migrate patch or remove stack management from non-admin users.
+- Setting `AllowStackManagementForRegularUsers=false` on the destination does **not** stop vector
+  1 — that is the bypass.
+- If you cannot patch vector 1: remove stack management from non-admin users entirely, or run
+  separate Portainer instances per trust domain. Only give a user stack rights on environments
+  where you would accept them deploying arbitrary containers.
 
 ---
 
@@ -251,16 +281,18 @@ it; a cheaper approximation is to alert on any non-admin request to either endpo
   `EndpointID == 0` write-back. The repros cover the two non-admin attack paths. In the patched
   migrate run, alice fails the destination authorization before the manage-stack check is reached.
 - No CVE has been assigned at the time of writing.
+- The vector 2 advisory is published; the vector 1 advisory is still private. The migrate path was
+  not patched in 2.45.4 or `develop` as of 2026-11-19. The vendor fix was source-reviewed, not
+  executed here.
 
 ## On the timing
 
-Portainer's policy asks reporters not to disclose until a fix has been released. We reported with a
-24-hour notice and are publishing two days later, with no response from the maintainers. The bug is
-reachable by any authenticated user who has stack rights on one environment, and the fix is in this
-post. The policy sets no response SLA; waiting for a release would leave every multi-environment
-installation exposed for an indefinite period while the patch that closes it is already written and
-tested. The report was sent before this post went up, and this section will be updated with
-Portainer's response.
+Portainer's policy asks reporters not to disclose until a fix has been released. I reported with a
+24-hour notice and published this writeup on 2026-11-07, before the vendor had responded. Portainer
+triaged the report on 2026-11-08, split it into two advisories, and shipped the vector 2 fix on
+2026-11-19. The policy sets no response SLA; waiting indefinitely would have left every
+multi-environment installation exposed while the patch that closes vector 2 was already written and
+tested. Vector 1 is still unfixed, so this writeup remains the durable public record for that path.
 
 ## Timeline
 
@@ -268,18 +300,23 @@ Portainer's response.
 - **2026-11-05** — reported privately to Portainer as
   [GHSA-x6pm-hvxv-g44v](https://github.com/portainer/portainer/security/advisories/GHSA-x6pm-hvxv-g44v),
   with a 24-hour publication notice.
-- **2026-11-07** — published, after two days with no maintainer response.
-- **2026-11-08** — triaged by Portainer and merged into two advisories with credit;
-  publication and CVE assignment pending.
-- Fix status is updated at the top of this file as it changes.
-
+- **2026-11-07** — published this writeup, after two days with no maintainer response.
+- **2026-11-08** — triaged by Portainer and split into two advisories with credit.
+- **2026-11-10** — vendor fix commit
+  [`d2336e9`](https://github.com/portainer/portainer/commit/d2336e95452d9c4fffd6091c0c234b46f57ffc75)
+  committed.
+- **2026-11-11** — fix merged to `develop`; backports merged to `release/2.45` and `release/2.39`.
+- **2026-11-19** — 2.39.9, 2.45.4 and 3.1.0 released; vector 2 advisory
+  [GHSA-m2rf-p268-843w](https://github.com/portainer/portainer/security/advisories/GHSA-m2rf-p268-843w)
+  published (High, CVSS v4 7.1, CWE-863, no CVE). Vector 1 advisory still private;
+  `stack_migrate.go` still unfixed in 2.45.4 and `develop`.
 
 ---
 
 ## A note on the repro scripts
 
 The two self-contained end-to-end scripts are not published here yet. They were included in the
-private report and turn a valid non-admin account into container deployment on another
-environment, so they stay private until a fixed release is available. Everything else needed to
-verify the analysis — the vulnerable code paths, the control sets, the exact requests, the
-transcripts, and a working patch — is in this repository.
+private report and turn a valid non-admin account into container deployment on another environment.
+The vector 2 repro can be released now that 2.45.4 exists; the vector 1 repro stays private until the
+migrate path is fixed. Everything else needed to verify the analysis — the vulnerable code paths,
+the control sets, the exact requests, the transcripts, and a working patch — is in this repository.
